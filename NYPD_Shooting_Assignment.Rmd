@@ -1,0 +1,185 @@
+---
+title: "NYPD Shooting Assignment"
+author: "Heather Melrose"
+date: "5/21/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# The Assignment
+
+During Module/Week 3 of MSDS 5301, we were asked to import data on NYPD Shooting Incidents from Data.gov. In this paper, we will learn more about the people involved in these shootings, both victims and perpetrators. 
+
+# Importing the NYPD Shooting Incident Data (Historic) Set
+
+Before we import the data from <https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic> let's make sure the necessary libraries are installed.
+
+```{r library, results='hide'}
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+```
+
+Now we import the data:
+
+```{r retrieve}
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+shooting_data <- read_csv(url_in)
+head(shooting_data)
+```
+
+This file details NYPD Shooting incidents starting in 2006. The data set includes one row for each shooting incident in New York City. At the time this paper was written, there had been nearly 25600 reported cases. Data includes information on the date of the shooting, the borough where it took place, and more for a total of 19 columns. When transforming the data we need to note that all of the column variables are in all caps except Latitude, Longitude and Lon_Lat.
+
+
+# Tidying and Transforming the Data
+
+Let's remove the last five columns. These columns contain precise geographical data at a level that we do not need for this analysis. As we remove these columns, let us also transform occurrence date from a chr to a date object using the mutate function.
+
+```{r date}
+shooting_data <- shooting_data %>%
+    select(INCIDENT_KEY:VIC_RACE) %>%
+    mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+head(shooting_data)
+```
+
+There are three columns PERP_SEX, PERP_AGE_GROUP, and PERP_RACE which have both NAs and "Unknown," or "U" for unknown, as inputs. Since a NA is equivalent to saying unknown, let's make each of these variables consistent by changing all of the NAs to Unknown, or in the case of PERP_SEX we will change NAs to U for consistency with the rest of the column.
+
+```{r nas}
+shooting_data <- shooting_data %>% 
+    mutate(PERP_AGE_GROUP = replace_na(PERP_AGE_GROUP, "UNKNOWN")) %>%
+    mutate(PERP_RACE = replace_na(PERP_RACE, "UNKNOWN")) %>%
+    mutate(PERP_SEX = replace_na(PERP_SEX, "U"))
+```
+
+# Visualizing the Data
+
+## The Victims
+
+Let's a take a look at who the victims are and where they live:
+
+```{r vic-age}
+shooting_data %>% 
+    filter(VIC_AGE_GROUP != "UNKNOWN") %>%
+    ggplot(aes(x = VIC_AGE_GROUP)) +
+    geom_bar() + 
+    labs(title = "Victims by Age Group", 
+         x = "Victim Age Groups", y = NULL)
+```
+
+We see that people between the ages of 25-44 are the greatest victimized group with the 18-24 age group a close second.
+
+``` {r vic-gender}
+shooting_data %>% count(VIC_SEX)
+```
+
+Males clearly make up the largest group of victims.
+
+``` {r vic-race}
+shooting_data %>% count(VIC_RACE, sort = TRUE)
+```
+
+Black victims out number all other races. In fact, black people are victims 2.5 times more than all other races combined.
+
+```{r place}
+shooting_data %>% count(BORO, sort = TRUE)
+shooting_data %>% 
+    filter(BORO != "UNKNOWN") %>%
+    ggplot(aes(x = BORO)) +
+    geom_bar() + 
+    labs(title = "NYC Shootings by Borough", 
+         x = "Boroughs", y = NULL)
+```
+
+The borough of Brooklyn had the highest number of crimes, followed by the Bronx.
+
+## The Perpetrators
+
+```{r perp-age}
+victim_count <- shooting_data %>% count(PERP_AGE_GROUP)
+shooting_data %>% 
+    filter(PERP_AGE_GROUP != 1020) %>%
+    filter(PERP_AGE_GROUP != 224) %>%
+    filter(PERP_AGE_GROUP != 940) %>%
+    ggplot(aes(x = PERP_AGE_GROUP)) +
+    geom_bar() + 
+    labs(title = "Perpetrators by Age Group", 
+         x = "Perpetrator Age Groups", y = NULL)
+```
+
+``` {r perp-gender}
+shooting_data %>% count(PERP_SEX)
+```
+
+``` {r perp-race}
+shooting_data %>% count(PERP_RACE, sort = TRUE)
+```
+
+The data on the perpetrators is a less clear picture. Males of an unknown age and unknown race committed the highest number of shooting crimes in NYC.  
+
+# Modeling the Data - Who is shooting who?
+
+```{r race}
+shooting_data %>% 
+    ggplot(aes(x = VIC_RACE, y = PERP_RACE)) +
+    geom_count() + 
+    theme(axis.text.x = element_text(angle = 90)) +
+    labs(title = "A Closer Look at Race", x = "Victim Race", y = "Perp Race")
+```
+
+The perpetrators were predominately unknown. Were these unknown because the victim truly couldn't distinguish their assailant's race? Or were they afraid or unable to answer?
+
+The victims on the other hand are clearly predominantly black. 
+
+Are black on black crimes the highest? Let's find out by looking at the race of both the perpetrator and the victim while sorting to have the largest group appear on top:
+
+```{r racemodel}
+shooting_data %>% count(PERP_RACE, VIC_RACE, sort = TRUE)
+```
+
+Both unknown and black perpetrators are shooting black people at a much higher rate than any other group. This is an alarming statistic.
+
+Let's now look at how gender plays a role:
+
+```{r gender}
+shooting_data %>% count(PERP_SEX, VIC_SEX)
+```
+
+```{r gender2}
+shooting_data %>% 
+    ggplot(aes(x = VIC_SEX, y = PERP_SEX)) +
+    geom_count() + 
+    theme(axis.text.x = element_text(angle = 90)) +
+    labs(title = "A Closer Look at Gender Violence", x = "Victim Gender", y = "Perp Gender")
+```
+
+The highest number of incidents occurs in male on male crimes. Of the unknown perpetrators, one might assume that the unknown gender identity of perpetrators is male. Perhaps, the victim either couldn't tell who committed the crime or is afraid to report who committed the crime. In the cases where the sex of the perpetrator is known approximately 98% were committed by males. It may be safe to assume that these unknown PERP_SEX values are actually male; however, without more information, doing so could introduce more bias into the data set. This analyst will steer clear of assumptions and transforming gender data further.
+
+```{r age_groupVage_group}
+shooting_data %>% 
+    filter(PERP_AGE_GROUP != 1020) %>%
+    filter(PERP_AGE_GROUP != 224) %>%
+    filter(PERP_AGE_GROUP != 940) %>%
+    ggplot(aes(x = VIC_AGE_GROUP, y = PERP_AGE_GROUP)) +
+    geom_count() + 
+    theme(axis.text.x = element_text(angle = 90)) +
+    labs(title = "A Closer Look at Age Groups", x = "Victim Age Group", y = "Perp Age Group")
+```
+
+Again, the unknown assailant reigns. If we look at the region of the graph with known age groups, people in their late teens, twenties and thirties are both the most victimized and the most likely to be the shooter.
+
+# Sources of Bias
+
+This data seems to confirm a common stereotype in  the United States, that black men commit more crimes. The race of the victims were most likely given by the victims themselves, but the race of perpetrator may have been also reported by the victim. It is safe to assume that a victim knows their own race, but they would likely have to guess the race of the other person. Could that victim see their assailant clearly? Could they have lied out of fear or personal bias? Could the officer recording the crime purposely entered black instead of another race based on their own bias? These are all possible sources of bias and it is impossible for the data to answer these questions. 
+
+My own personal bias could come in when transforming the data. I chose to make NAs and Unknowns equal entries. It would have been easy to change the Unknown genders to male given the high percentage of male perpetrators as stated above. I chose to leave the unknowns as such and not transform that data further to avoid introducing potential bias.
+
+# Conclusion
+
+The data suggests that the most victimized group are black males in Brooklyn, between ages 25-44. 
+
+The picture of who may be committing these crimes is less obvious. More thorough investigations by police officers could possibly change some of the great number of unknowns in the perpetrator variables. Perhaps, these are unsolved crimes, committed by people shooting at a distance in the dark; therefore, more information simply wouldn't be available. Perhaps, there are biased answers given by the victims motivated by fear or revenge. Without further surveys of the victims and officers involved, it is unclear who the predominate perpetrators are other than to say that they are likely male.   
